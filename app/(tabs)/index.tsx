@@ -1,98 +1,134 @@
 import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { useThemeColor } from '@/hooks/use-theme-color';
+import { getCoverSource } from '@/src/lightnovels/asset-map';
+import { manifest } from '@/src/lightnovels/data';
+import type { Series } from '@/src/lightnovels/types';
 
-export default function HomeScreen() {
+const COVER_PLACEHOLDER = require('@/assets/images/partial-react-logo.png');
+
+const PAD_H = 12;
+const GAP = 16;
+const COVER_ASPECT = 2 / 3;
+
+function SeriesCard({
+  series,
+  cardWidth,
+}: {
+  series: Series;
+  cardWidth: number;
+}) {
+  const router = useRouter();
+  const firstVolume = series.volumes[0];
+  const coverSource = firstVolume
+    ? getCoverSource(series.folder, firstVolume.coverFilename)
+    : null;
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
+    <Pressable
+      style={({ pressed }) => [
+        styles.card,
+        { width: cardWidth },
+        pressed && styles.cardPressed,
+      ]}
+      onPress={() => router.push(`/series/${series.id}`)}
+    >
+      <ThemedView
+        style={[styles.coverContainer, { width: cardWidth, aspectRatio: COVER_ASPECT }]}
+      >
         <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
+          source={coverSource ?? COVER_PLACEHOLDER}
+          style={styles.cover}
+          contentFit="cover"
         />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
       </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+      <ThemedText type="defaultSemiBold" style={styles.title} numberOfLines={2}>
+        {series.name}
+      </ThemedText>
+    </Pressable>
+  );
+}
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
+export default function LibraryScreen() {
+  const router = useRouter();
+  const { width } = useWindowDimensions();
+  const cardWidth = (width - PAD_H * 2 - GAP) / 2;
+  const iconColor = useThemeColor({}, 'icon');
+
+  return (
+    <ThemedView style={styles.container}>
+      <View style={styles.headerRow}>
+        <ThemedText type="title" style={styles.header}>
+          Library
         </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+        <Pressable
+          onPress={() => router.push('/modal')}
+          style={({ pressed }) => [styles.settingsBtn, pressed && styles.pressed]}
+          hitSlop={12}
+        >
+          <IconSymbol name="gearshape.fill" size={24} color={iconColor} />
+        </Pressable>
+      </View>
+      <ScrollView
+        contentContainerStyle={styles.grid}
+        showsVerticalScrollIndicator={false}
+      >
+        {manifest.series.map((series) => (
+          <SeriesCard key={series.id} series={series} cardWidth={cardWidth} />
+        ))}
+      </ScrollView>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  container: {
+    flex: 1,
+    paddingTop: 48,
+  },
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 16,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  header: {
+    flex: 1,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  settingsBtn: {
+    padding: 4,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: PAD_H,
+    gap: GAP,
+    paddingBottom: 24,
+  },
+  card: {},
+  cardPressed: {
+    opacity: 0.8,
+  },
+  coverContainer: {
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(128,128,128,0.2)',
+  },
+  cover: {
+    width: '100%',
+    height: '100%',
+  },
+  title: {
+    marginTop: 6,
+    paddingHorizontal: 2,
   },
 });

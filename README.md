@@ -25,6 +25,16 @@ In the output, you'll find options to open the app in a
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
+## Light novel content
+
+- Put series in **src/lightnovels/** as folders (e.g. `Monogatari Series/`).
+- Each volume: one `.webp` cover and one `.pdf` with the **same base filename** (e.g. `Monogatari Series v01 - Bakemonogatari Part 1.webp` and `.pdf`).
+- Regenerate manifest and asset map:
+
+  ```bash
+  npm run generate-lightnovels
+  ```
+
 ## Get a fresh project
 
 When you're ready, run:
