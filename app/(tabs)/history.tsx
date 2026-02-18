@@ -10,6 +10,7 @@ import { useThemeColor } from '@/hooks/use-theme-color';
 import { getHistory } from '@/src/history/storage';
 import type { HistoryEntry } from '@/src/history/types';
 import { getCoverSource } from '@/src/lightnovels/asset-map';
+import { getPagesReadToday } from '@/src/stats/storage';
 
 const COVER_PLACEHOLDER = require('@/assets/images/partial-react-logo.png');
 
@@ -50,11 +51,13 @@ function HistoryRow({
 export default function HistoryScreen() {
   const router = useRouter();
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
+  const [pagesToday, setPagesToday] = useState(0);
   const iconColor = useThemeColor({}, 'icon');
 
   useFocusEffect(
     useCallback(() => {
       getHistory().then(setEntries);
+      getPagesReadToday().then(setPagesToday);
     }, [])
   );
 
@@ -91,6 +94,13 @@ export default function HistoryScreen() {
             <IconSymbol name="gearshape.fill" size={24} color={iconColor} />
           </Pressable>
         </View>
+        {pagesToday > 0 && (
+          <ThemedView style={styles.statsCard}>
+            <ThemedText style={styles.statsText}>
+              {pagesToday} {pagesToday === 1 ? 'page' : 'pages'} read today
+            </ThemedText>
+          </ThemedView>
+        )}
         <ThemedText style={styles.empty}>No recent reads. Open a volume from Library to start.</ThemedText>
       </ThemedView>
     );
@@ -110,6 +120,13 @@ export default function HistoryScreen() {
           <IconSymbol name="gearshape.fill" size={24} color={iconColor} />
         </Pressable>
       </View>
+      {pagesToday > 0 && (
+        <ThemedView style={styles.statsCard}>
+          <ThemedText style={styles.statsText}>
+            {pagesToday} {pagesToday === 1 ? 'page' : 'pages'} read today
+          </ThemedText>
+        </ThemedView>
+      )}
       <FlatList
         data={entries}
         keyExtractor={(item) => item.id}
@@ -146,6 +163,18 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.7,
+  },
+  statsCard: {
+    marginHorizontal: 20,
+    marginBottom: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: 'rgba(10, 126, 164, 0.12)',
+  },
+  statsText: {
+    fontSize: 14,
+    opacity: 0.9,
   },
   empty: {
     paddingHorizontal: 20,

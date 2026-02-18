@@ -1,5 +1,6 @@
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -9,6 +10,7 @@ import { useThemeColor } from '@/hooks/use-theme-color';
 import { getCoverSource } from '@/src/lightnovels/asset-map';
 import { manifest } from '@/src/lightnovels/data';
 import type { Series } from '@/src/lightnovels/types';
+import { getPagesReadToday } from '@/src/stats/storage';
 
 const COVER_PLACEHOLDER = require('@/assets/images/partial-react-logo.png');
 
@@ -59,6 +61,13 @@ export default function LibraryScreen() {
   const { width } = useWindowDimensions();
   const cardWidth = (width - PAD_H * 2 - GAP) / 2;
   const iconColor = useThemeColor({}, 'icon');
+  const [pagesToday, setPagesToday] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      getPagesReadToday().then(setPagesToday);
+    }, [])
+  );
 
   return (
     <ThemedView style={styles.container}>
@@ -74,6 +83,13 @@ export default function LibraryScreen() {
           <IconSymbol name="gearshape.fill" size={24} color={iconColor} />
         </Pressable>
       </View>
+      {pagesToday > 0 && (
+        <ThemedView style={styles.statsCard}>
+          <ThemedText style={styles.statsText}>
+            {pagesToday} {pagesToday === 1 ? 'page' : 'pages'} read today
+          </ThemedText>
+        </ThemedView>
+      )}
       <ScrollView
         contentContainerStyle={styles.grid}
         showsVerticalScrollIndicator={false}
@@ -106,6 +122,18 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.7,
+  },
+  statsCard: {
+    marginHorizontal: 20,
+    marginBottom: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: 'rgba(10, 126, 164, 0.12)',
+  },
+  statsText: {
+    fontSize: 14,
+    opacity: 0.9,
   },
   grid: {
     flexDirection: 'row',

@@ -1,7 +1,7 @@
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -13,8 +13,10 @@ import { WebView } from 'react-native-webview';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useThemeColor } from '@/hooks/use-theme-color';
 import { saveToHistory } from '@/src/history/storage';
 import { getPdfRequire } from '@/src/lightnovels/asset-map';
+import { addPagesReadToday } from '@/src/stats/storage';
 
 export default function ReaderScreen() {
   const router = useRouter();
@@ -39,9 +41,13 @@ export default function ReaderScreen() {
   const [pdfHtml, setPdfHtml] = useState<string | null>(null);
   const [localFileUri, setLocalFileUri] = useState<string | null>(null);
   const [lastPage, setLastPage] = useState(initialPage);
+  const [totalPages, setTotalPages] = useState<number | null>(null);
   const [immersive, setImmersive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const tintColor = useThemeColor({}, 'tint');
+  const lastPageRef = useRef(lastPage);
+  lastPageRef.current = lastPage;
 
   const buildPdfJsHtml = useCallback(
     (base64: string) => {
@@ -73,45 +79,66 @@ export default function ReaderScreen() {
       var scale = window.devicePixelRatio || 1.5;
       scale = Math.min(scale, 2.5);
       var canvases = [];
-      function renderPage(num) {
-        pdf.getPage(num).then(function(page) {
-          var viewport = page.getViewport({ scale: scale });
-          var canvas = document.createElement('canvas');
-          canvas.setAttribute('data-page', String(num));
-          var ctx = canvas.getContext('2d');
-          canvas.height = viewport.height;
-          canvas.width = viewport.width;
-          canvas.style.maxWidth = '100%';
-          container.appendChild(canvas);
-          canvases.push(canvas);
-          page.render({ canvasContext: ctx, viewport: viewport });
-          if (num < pdf.numPages) renderPage(num + 1);
-          else {
-            if (initialPageNum > 1 && canvases[initialPageNum - 1]) {
-              canvases[initialPageNum - 1].scrollIntoView({ behavior: 'auto', block: 'start' });
-            }
-            function reportPage() {
-              var scrollTop = window.scrollY || document.documentElement.scrollTop;
-              var viewportMid = scrollTop + window.innerHeight / 2;
-              var current = 1;
-              for (var i = 0; i < canvases.length; i++) {
-                var r = canvases[i].getBoundingClientRect();
-                var top = r.top + scrollTop;
-                var mid = top + r.height / 2;
-                if (viewportMid >= top && viewportMid <= top + r.height) {
-                  current = i + 1;
-                  break;
-                }
-                if (mid <= viewportMid) current = i + 1;
-              }
-              if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'page', page: current }));
-            }
-            window.addEventListener('scroll', reportPage);
-            reportPage();
+      var renderTask = pdf.getPage(1).then(function(firstPage) {
+        var vp = firstPage.getViewport({ scale: scale });
+        for (var i = 0; i < pdf.numPages; i++) {
+          var c = document.createElement('canvas');
+          c.setAttribute('data-page', String(i + 1));
+          c.height = vp.height;
+          c.width = vp.width;
+          c.style.maxWidth = '100%';
+          container.appendChild(c);
+          canvases.push(c);
+        }
+        if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'numPages', numPages: pdf.numPages }));
+        function renderOne(num, onDone) {
+          pdf.getPage(num).then(function(page) {
+            var viewport = page.getViewport({ scale: scale });
+            var canvas = canvases[num - 1];
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise.then(onDone);
+          });
+        }
+        function doScroll() {
+          if (initialPageNum > 1 && canvases[initialPageNum - 1]) {
+            var target = canvases[initialPageNum - 1];
+            target.scrollIntoView({ behavior: 'auto', block: 'start' });
+            var y = target.getBoundingClientRect().top + (window.scrollY || document.documentElement.scrollTop) - 16;
+            window.scrollTo(0, Math.max(0, y));
           }
-        });
-      }
-      renderPage(1);
+        }
+        function reportPage() {
+          var scrollTop = window.scrollY || document.documentElement.scrollTop;
+          var viewportMid = scrollTop + window.innerHeight / 2;
+          var current = 1;
+          for (var i = 0; i < canvases.length; i++) {
+            var r = canvases[i].getBoundingClientRect();
+            var top = r.top + scrollTop;
+            var mid = top + r.height / 2;
+            if (viewportMid >= top && viewportMid <= top + r.height) {
+              current = i + 1;
+              break;
+            }
+            if (mid <= viewportMid) current = i + 1;
+          }
+          if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'page', page: current }));
+        }
+        window.addEventListener('scroll', reportPage);
+        reportPage();
+        if (initialPageNum > 1) {
+          renderOne(initialPageNum, function() {
+            doScroll();
+            setTimeout(doScroll, 50);
+            setTimeout(doScroll, 300);
+            for (var n = 1; n <= pdf.numPages; n++) {
+              if (n !== initialPageNum) renderOne(n, function() {});
+            }
+          });
+        } else {
+          for (var n = 1; n <= pdf.numPages; n++) renderOne(n, function() {});
+        }
+      }).catch(function() {});
     }).catch(function(err) {
       document.getElementById('load').textContent = 'Failed to load PDF: ' + err.message;
     });
@@ -161,8 +188,10 @@ export default function ReaderScreen() {
     loadPdf();
   }, [loadPdf]);
 
+  // Save history and pages-read stats only on unmount (when user leaves reader)
   useEffect(() => {
     return () => {
+      const currentLastPage = lastPageRef.current;
       if (seriesId && seriesName && coverFilename && folder && pdfFilename && title) {
         saveToHistory({
           seriesId,
@@ -171,16 +200,19 @@ export default function ReaderScreen() {
           pdfFilename,
           coverFilename,
           volumeTitle: title,
-          lastPage,
+          lastPage: currentLastPage,
         });
       }
+      const pagesRead = Math.max(0, currentLastPage - initialPage);
+      addPagesReadToday(pagesRead);
     };
-  }, [seriesId, seriesName, coverFilename, folder, pdfFilename, title, lastPage]);
+  }, []); // Empty deps = cleanup only runs on unmount
 
   const handleWebViewMessage = useCallback((event: { nativeEvent: { data: string } }) => {
     try {
-      const msg = JSON.parse(event.nativeEvent.data) as { type: string; page?: number };
+      const msg = JSON.parse(event.nativeEvent.data) as { type: string; page?: number; numPages?: number };
       if (msg.type === 'page' && typeof msg.page === 'number') setLastPage(msg.page);
+      if (msg.type === 'numPages' && typeof msg.numPages === 'number') setTotalPages(msg.numPages);
     } catch {
       // ignore
     }
@@ -210,14 +242,15 @@ export default function ReaderScreen() {
   return (
     <ThemedView style={styles.container}>
       {!immersive && (
-        <ThemedView style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.headerBack}>
-            <ThemedText type="defaultSemiBold">← Back</ThemedText>
-          </Pressable>
-          <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.headerTitle}>
-            {title}
-          </ThemedText>
-          <ThemedView style={styles.headerActions}>
+        <ThemedView style={styles.headerWrap}>
+          <ThemedView style={styles.header}>
+            <Pressable onPress={() => router.back()} style={styles.headerBack}>
+              <ThemedText type="defaultSemiBold">← Back</ThemedText>
+            </Pressable>
+            <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.headerTitle}>
+              {title}
+            </ThemedText>
+            <ThemedView style={styles.headerActions}>
             {localFileUri ? (
               <Pressable
                 onPress={() => localFileUri && Linking.openURL(localFileUri)}
@@ -233,6 +266,30 @@ export default function ReaderScreen() {
               <ThemedText type="defaultSemiBold">{immersive ? 'Show UI' : 'Immersive'}</ThemedText>
             </Pressable>
           </ThemedView>
+        </ThemedView>
+        {Platform.OS !== 'web' && totalPages != null && totalPages > 0 && (
+          <ThemedView style={styles.progressSection}>
+            <ThemedText style={styles.progressText}>
+              You are {Math.round((lastPage / totalPages) * 100)}% through {title}
+            </ThemedText>
+            <ThemedView style={styles.progressRow}>
+              <ThemedText style={styles.pageIndicator}>
+                Page {lastPage} of {totalPages}
+              </ThemedText>
+              <ThemedView style={styles.progressTrack}>
+              <ThemedView
+                style={[
+                  styles.progressFill,
+                  {
+                    width: `${Math.min(100, (lastPage / totalPages) * 100)}%`,
+                    backgroundColor: tintColor,
+                  },
+                ]}
+              />
+            </ThemedView>
+            </ThemedView>
+          </ThemedView>
+        )}
         </ThemedView>
       )}
       {immersive && (
@@ -287,12 +344,48 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 24,
   },
+  headerWrap: {
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 4,
     gap: 8,
+  },
+  progressSection: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(128,128,128,0.3)',
+  },
+  progressText: {
+    fontSize: 13,
+    opacity: 0.9,
+    marginBottom: 6,
+  },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  pageIndicator: {
+    fontSize: 12,
+    opacity: 0.9,
+    minWidth: 70,
+  },
+  progressTrack: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(128,128,128,0.25)',
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 3,
   },
   headerBack: {
     padding: 4,
